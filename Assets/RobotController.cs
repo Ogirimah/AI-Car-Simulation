@@ -4,6 +4,9 @@ using System.Collections.Generic;
 using UnityEngine;
 
 public class RobotController : MonoBehaviour
+/////////////////////////////
+// VERSION 1
+////////////////////////////
 {
     // naming constraints do not change
     [SerializeField] private WheelCollider FLWC;
@@ -25,116 +28,160 @@ public class RobotController : MonoBehaviour
     [SerializeField] private Transform SR3;
     [SerializeField] private Transform SOR;
 
-    [SerializeField] public float MForce = 0f;
-    [SerializeField] public float AForce = 10f;
-    [SerializeField] private float MaxForce = 4000f;
-    [SerializeField] public float MAngle = 10f;
-    [SerializeField] public float BForce = 3000f;
+    [SerializeField] private float angle_x, angle_z, velocity;
 
-    private float SteerAngle;
+    private float MAngle = 10f;
+    [SerializeField] private float Mforce = f;
+    [SerializeField] private float BForce = 0f;
 
+    private Rigidbody rb;
 
-    private float S1RotY = 10;
-    private float S2RotY = 45;
-    private float S3RotY = 90;
-    private float S2RotX = 10;
-    private float S3RotX = 10;
+    private float steerAngle;
+    private bool isBreaking;
 
-    private void Start()
+    void Start()
     {
-        SL1.transform.Rotate(0, -S1RotY, 0);
-        SL2.transform.Rotate(S2RotX, -S2RotY, 0);
-        SL3.transform.Rotate(S3RotX, -S3RotY, 0);
-        SR1.transform.Rotate(0, S1RotY, 0);
-        SR2.transform.Rotate(S2RotX, S2RotY, 0);
-        SR3.transform.Rotate(S3RotX, S3RotY, 0);
+        // x and y rotations of the sensors
+        float S1RX = 0, S2RX = 10, S3RX = 12;
+        float S1RY = 10, S2RY = 45, S3RY = 90;
 
-        StayOnTheRoad();
-        HandleMotor();
-        IncreaseMForce();
+        AdjustSensors(SL1, S1RX, -S1RY, 0);
+        AdjustSensors(SL2, S2RX, -S2RY, 0);
+        AdjustSensors(SL3, S3RX, -S3RY, 0);
+        AdjustSensors(SR1, S1RX, S1RY, 0);
+        AdjustSensors(SR2, S2RX, S2RY, 0);
+        AdjustSensors(SR3, S3RX, S3RY, 0);
+
+        //Orientation sensor at an angle -- to be able to know the orientation
+        AdjustSensors(SOR, 50, 180, 0);
+
+        rb = GetComponent<Rigidbody>();
     }
-
+    // Update is called once per frame
     private void FixedUpdate()
     {
-        Sense(SFR, 10);
-        Sense(SL1, 5);
-        Sense(SL2, 6);
-        Sense(SL3, 5.5f);
-        Sense(SR1, 5);
-        Sense(SR2, 6);
-        Sense(SR3, 5.5f);
-        Sense(SOR, 1);
+        HandleSteering();
+        AdjustSpeed();
+        HandleMotor();
+        UpdateWheels();
+        sense(SFR, 10);
+        sense(SL1, 5);
+        sense(SL2, 6);
+        sense(SL3, 5);
+        sense(SR1, 5);
+        sense(SR2, 6);
+        sense(SR3, 5.3f);
+        sense(SOR, 3);
+
+        velocity = rb.velocity.magnitude;
     }
 
-    private bool Sense(Transform sensor, float dist)
-    { 
-        if (Physics.Raycast(sensor.position, sensor.TransformDirection(Vector3.forward), dist))
+    private void AdjustSensors(Transform sensor, float angle_x, float angle_y, float angle_z)
+    {
+        sensor.transform.Rotate(angle_x, angle_y, angle_z);
+    }
+
+    private void HandleSteering()
+    {
+        steerAngle = MAngle;
+        if (sense(SL1, 5) || sense(SR1, 5))
         {
-            Debug.DrawRay(sensor.position, sensor.TransformDirection(Vector3.forward) * dist, Color.green);
+            if (sense(SL1, 5))
+            {
+                steerAngle = MAngle;
+            }
+            if (sense(SR1, 5))
+            {
+                steerAngle = -MAngle;
+            }
+        }
+        else if (!sense(SL2, 6) || !sense(SR2, 6))
+        {
+            if (!sense(SL2, 6))
+            {
+                steerAngle = 2 * MAngle;
+            }
+            if (!sense(SR2, 6))
+            {
+                steerAngle = -2 * MAngle;
+            }
+        }
+        else if (!sense(SL3, 5) || !sense(SR3, 5.3f))
+        {
+            if (!sense(SL3, 5))
+            {
+                steerAngle = 3 * MAngle;
+            }
+            if (!sense(SR3, 5.3f))
+            {
+                steerAngle = -3 * MAngle;
+            }
+        }
+        else
+        {
+            isBreaking = false;
+            steerAngle = 0;
+        }
+        FLWC.steerAngle = steerAngle;
+        FRWC.steerAngle = steerAngle;
+    }
+    private void HandleMotor()
+    {
+        FLWC.motorTorque = Mforce;
+        FRWC.motorTorque = Mforce;
+        BLWC.motorTorque = Mforce;
+        BRWC.motorTorque = Mforce;
+        BForce = isBreaking ? 3000f : 0f;
+        FLWC.brakeTorque = BForce;
+        FRWC.brakeTorque = BForce;
+        BLWC.brakeTorque = BForce;
+        BRWC.brakeTorque = BForce;
+    }
+    private void AdjustSpeed()
+    {
+        if (velocity < 0.5 & Mforce < 10)
+        {
+            Mforce = 50f;
+        }
+        if (velocity < 2 & Mforce < 50)
+        {
+            Mforce = Mforce + 0.5f;
+        }
+        if (velocity > 4 & Mforce > 0)
+        {
+            Mforce = Mforce - 0.5f;
+        }
+    }
+    private void UpdateWheelPos(WheelCollider wheelCollider, Transform trans)
+    {
+        Vector3 pos;
+        Quaternion rot;
+        wheelCollider.GetWorldPose(out pos, out rot);
+        trans.rotation = rot;
+        trans.position = pos;
+    }
+    private void UpdateWheels()
+    {
+        UpdateWheelPos(FLWC, FLWT);
+        UpdateWheelPos(FRWC, FRWT);
+        UpdateWheelPos(BLWC, BLWT);
+        UpdateWheelPos(BRWC, BRWT);
+    }
+    private bool sense(Transform sensor, float dist)
+    {
+        RaycastHit hit;
+        if (Physics.Raycast(sensor.position,
+            sensor.TransformDirection(Vector3.forward), out hit, dist))
+        {
+            Debug.DrawRay(sensor.position,
+                sensor.TransformDirection(Vector3.forward) * hit.distance, Color.yellow);
             return true;
         }
         else
         {
-            Debug.DrawRay(sensor.position, sensor.TransformDirection(Vector3.forward) * dist, Color.red);
+            Debug.DrawRay(sensor.position,
+                sensor.TransformDirection(Vector3.forward) * dist, Color.white);
             return false;
         }
     }
-
-    private void UpdateWheelPosition(WheelCollider wheelCollider, Transform trans)
-    {
-        wheelCollider.GetWorldPose(out Vector3 pos, out Quaternion quat);
-        trans.rotation = quat;
-        trans.position = pos;
-    }
-
-    private void UpdateWheels()
-    {
-        UpdateWheelPosition(FLWC, FLWT);
-        UpdateWheelPosition(FRWC, FRWT);
-        UpdateWheelPosition(BLWC, BLWT);
-        UpdateWheelPosition(BRWC, BRWT);
-    }
-
-    private void HandleMotor()
-    {
-        FLWC.motorTorque = MForce * Time.deltaTime;
-        FRWC.motorTorque = MForce * Time.deltaTime;
-        BLWC.motorTorque = MForce * Time.deltaTime;
-        BRWC.motorTorque = MForce * Time.deltaTime;
-    }
-
-    private void IncreaseMForce()
-    {
-        MForce += AForce;
-    }
-
-    private void StayOnTheRoad()
-    {
-        if (Sense(SL3, 5.5f))
-        {
-            SteerAngle = MAngle;
-        }
-        if (Sense(SL2, 6))
-        {
-            SteerAngle = MAngle;
-        }
-        
-        else
-        {
-            SteerAngle = 0f;
-        }
-
-        FLWC.steerAngle = SteerAngle;
-        FRWC.steerAngle = SteerAngle;
-    }
 }
-
-// SFR Detects the road directly in front, and it should be the longest. It will also only control the speed
-// Once it detects a turn or object, it starts reducing speed until the SL1 or SR1 detects the turn or object and triggers the steering handle to evade it
-
-// SL2 and SR2 will be used for curved bends, while SL3 and SR3 will keep the car in the middle of the road.
-// Their lengths should decrease accordingly from SFR to 1 to 2 to 3.
-
-// SORwould be used for climbing hills and coming down slopes
-
-//Ask Luke if I can write a C# script for FollowPlayer so that I can attach it to the camera

@@ -2592,7 +2592,7 @@ MonoBehaviour:
   SR3: {fileID: 528387422}
   SOR: {fileID: 528387421}
   MForce: 1000
-  AForce: 10
+  AForce: 0
   MaxForce: 4000
   MAngle: 10
   BForce: 3000
