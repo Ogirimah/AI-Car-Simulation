@@ -5,7 +5,7 @@ using UnityEngine;
 
 public class RobotController : MonoBehaviour
 /////////////////////////////
-// VERSION 1
+// MINE
 ////////////////////////////
 {
     // naming constraints do not change
@@ -28,130 +28,170 @@ public class RobotController : MonoBehaviour
     [SerializeField] private Transform SR3;
     [SerializeField] private Transform SOR;
 
-    [SerializeField] private float angle_x, angle_z, velocity;
+    private Rigidbody carBody;
+    public float carVelocity, maxCarVelocity;
+    public int angle_x, angle_z;
+    public int engineForce, maxEngineForce, gearEngineForce, breakForce, forceChangeValue;
+    public bool isBreaking;
+    public int steerAngle;
+    private int maxSteerAngle;
 
-    private float MAngle = 10f;
-    [SerializeField] private float Mforce = f;
-    [SerializeField] private float BForce = 0f;
+    public int sorX = 50, sorY = 180;
 
-    private Rigidbody rb;
+    //Sensing distance for all sensors
+    private float s1D, s2D, s3D, sorD, sfrD;
 
-    private float steerAngle;
-    private bool isBreaking;
+    int trackMask, obstacleMask;
 
     void Start()
     {
-        // x and y rotations of the sensors
-        float S1RX = 0, S2RX = 10, S3RX = 12;
-        float S1RY = 10, S2RY = 45, S3RY = 90;
+        carBody = GetComponent<Rigidbody>();
 
-        AdjustSensors(SL1, S1RX, -S1RY, 0);
-        AdjustSensors(SL2, S2RX, -S2RY, 0);
-        AdjustSensors(SL3, S3RX, -S3RY, 0);
-        AdjustSensors(SR1, S1RX, S1RY, 0);
-        AdjustSensors(SR2, S2RX, S2RY, 0);
-        AdjustSensors(SR3, S3RX, S3RY, 0);
+        //x, y, and z rotation angles of the sensors
+        int s1X = 0, s2X = 16, s3X = 18, sfrX = 5;
+        int s1Y = 10, s2Y = 40, s3Y = 70, sfrY = 0;
+        int s1Z = 0, s2Z = 0, s3Z = 0, sorZ = 0, sfrZ = 0;
 
-        //Orientation sensor at an angle -- to be able to know the orientation
-        AdjustSensors(SOR, 50, 180, 0);
+        trackMask = 1 << 9;
+        obstacleMask = 1 << 10;
 
-        rb = GetComponent<Rigidbody>();
+        //Sensing distance for all sensors
+        s1D = 5; s2D = 8f; s3D = 7; sorD = 3; sfrD = 15;
+
+        AdjustSensors(SFR, sfrX, sfrY, sfrZ);
+        AdjustSensors(SL1, s1X, -s1Y, s1Z);
+        AdjustSensors(SR1, s1X, s1Y, s1Z);
+        AdjustSensors(SL2, s2X, -s2Y, s2Z);
+        AdjustSensors(SR2, s2X, s2Y, s2Z);
+        AdjustSensors(SL3, s3X, -s3Y, s3Z);
+        AdjustSensors(SR3, s3X, s3Y, s3Z);
+        AdjustSensors(SOR, sorX, sorY, sorZ);
     }
-    // Update is called once per frame
+
     private void FixedUpdate()
     {
-        HandleSteering();
-        AdjustSpeed();
-        HandleMotor();
+        carVelocity = carBody.velocity.magnitude;
+        angle_x = (int)SOR.eulerAngles.x;
+        angle_z = (int)SOR.eulerAngles.z;
+
         UpdateWheels();
-        sense(SFR, 10);
-        sense(SL1, 5);
-        sense(SL2, 6);
-        sense(SL3, 5);
-        sense(SR1, 5);
-        sense(SR2, 6);
-        sense(SR3, 5.3f);
-        sense(SOR, 3);
 
-        velocity = rb.velocity.magnitude;
+        
+        Steer();
+
+        DriveMode();
+        EngineForceControl();
+        MotorControl();
+        DoNotExceedMaxVelocity();
     }
 
-    private void AdjustSensors(Transform sensor, float angle_x, float angle_y, float angle_z)
+    private void LateUpdate()
     {
-        sensor.transform.Rotate(angle_x, angle_y, angle_z);
+        StayOnTheRoad();
     }
 
-    private void HandleSteering()
+    private void Drive1()
     {
-        steerAngle = MAngle;
-        if (sense(SL1, 5) || sense(SR1, 5))
+        maxSteerAngle = 20;
+        gearEngineForce = 500;
+        forceChangeValue = 10;
+        maxCarVelocity = 0.5f;
+    }
+
+    private void Drive2()
+    {
+        maxSteerAngle = 15;
+        gearEngineForce = 300;
+        forceChangeValue = 5;
+        maxCarVelocity = 2;
+    }
+
+    private void Drive3()
+    {
+        maxSteerAngle = 6;
+        gearEngineForce = 50;
+        forceChangeValue = 1;
+        maxCarVelocity = 4;
+    }
+
+    private void EngineForceControl()
+    {
+        if (carVelocity < maxCarVelocity & engineForce < gearEngineForce)
         {
-            if (sense(SL1, 5))
-            {
-                steerAngle = MAngle;
-            }
-            if (sense(SR1, 5))
-            {
-                steerAngle = -MAngle;
-            }
+            engineForce = engineForce + forceChangeValue;
         }
-        else if (!sense(SL2, 6) || !sense(SR2, 6))
+        else if (carVelocity > maxCarVelocity & engineForce > gearEngineForce)
         {
-            if (!sense(SL2, 6))
-            {
-                steerAngle = 2 * MAngle;
-            }
-            if (!sense(SR2, 6))
-            {
-                steerAngle = -2 * MAngle;
-            }
+            engineForce = engineForce - forceChangeValue;
         }
-        else if (!sense(SL3, 5) || !sense(SR3, 5.3f))
+    }
+
+    private void DoNotExceedMaxVelocity()
+    {
+        if (carVelocity > maxCarVelocity)
         {
-            if (!sense(SL3, 5))
-            {
-                steerAngle = 3 * MAngle;
-            }
-            if (!sense(SR3, 5.3f))
-            {
-                steerAngle = -3 * MAngle;
-            }
+            isBreaking = true;
         }
         else
         {
             isBreaking = false;
+        }
+    }
+
+    private void StayOnTheRoad()
+    {
+        if (Sense(SL1, obstacleMask, s1D) || Sense(SR1, obstacleMask, s1D))
+        {
+            AvoidObstacles();
+        }
+        else if (!Sense(SL2, trackMask, s2D, 1) || !Sense(SR2, trackMask, s2D, -1) || !Sense(SL3, trackMask, s3D, 1) || !Sense(SR3, trackMask, s3D, -1))
+        {
+            if (!Sense(SL2, trackMask, s2D, 1) & !Sense(SR2, trackMask, s2D, -1))
+            {
+                steerAngle = 0;
+            }
+            else if (!Sense(SL3, trackMask, s3D, 1) || !Sense(SR3, trackMask, s3D, -1))
+            {
+                if (!Sense(SL3, trackMask, s3D, 1))
+                {
+                    steerAngle = 3 * maxSteerAngle / 2;
+                }
+                else
+                {
+                    steerAngle = -3 * maxSteerAngle / 2;
+                }
+            }
+            else if (!Sense(SL2, trackMask, s2D, 1) || !Sense(SR2, trackMask, s2D, -1))
+            {
+                if (!Sense(SL2, trackMask, s2D, 1))
+                {
+                    steerAngle = maxSteerAngle / 2;
+                }
+                else
+                {
+                    steerAngle = -maxSteerAngle / 2;
+                }
+            }
+        }
+        else
+        {
             steerAngle = 0;
         }
-        FLWC.steerAngle = steerAngle;
-        FRWC.steerAngle = steerAngle;
     }
-    private void HandleMotor()
+
+    private void MotorControl()
     {
-        FLWC.motorTorque = Mforce;
-        FRWC.motorTorque = Mforce;
-        BLWC.motorTorque = Mforce;
-        BRWC.motorTorque = Mforce;
-        BForce = isBreaking ? 3000f : 0f;
-        FLWC.brakeTorque = BForce;
-        FRWC.brakeTorque = BForce;
-        BLWC.brakeTorque = BForce;
-        BRWC.brakeTorque = BForce;
+        FLWC.motorTorque = engineForce;
+        FRWC.motorTorque = engineForce;
+        BLWC.motorTorque = engineForce;
+        BRWC.motorTorque = engineForce;
+        breakForce = isBreaking ? 5000 : 0;
+        FLWC.brakeTorque = breakForce;
+        FRWC.brakeTorque = breakForce;
+        BLWC.brakeTorque = breakForce;
+        BRWC.brakeTorque = breakForce;
     }
-    private void AdjustSpeed()
-    {
-        if (velocity < 0.5 & Mforce < 10)
-        {
-            Mforce = 50f;
-        }
-        if (velocity < 2 & Mforce < 50)
-        {
-            Mforce = Mforce + 0.5f;
-        }
-        if (velocity > 4 & Mforce > 0)
-        {
-            Mforce = Mforce - 0.5f;
-        }
-    }
+
     private void UpdateWheelPos(WheelCollider wheelCollider, Transform trans)
     {
         Vector3 pos;
@@ -167,21 +207,112 @@ public class RobotController : MonoBehaviour
         UpdateWheelPos(BLWC, BLWT);
         UpdateWheelPos(BRWC, BRWT);
     }
-    private bool sense(Transform sensor, float dist)
+
+    private void AdjustSensors(Transform sensor, int angle_x, int angle_y, int angle_z)
     {
+        sensor.transform.Rotate(angle_x, angle_y, angle_z);
+    }
+
+    private bool Sense(Transform sensor, int layerMask, params float[] distanceAndDirection)
+    {
+        float dist = distanceAndDirection[0];
+        Nullable<bool> sensing = null;
         RaycastHit hit;
-        if (Physics.Raycast(sensor.position,
-            sensor.TransformDirection(Vector3.forward), out hit, dist))
+
+        //for front sensors and orientation sensor
+        if (distanceAndDirection.Length == 1)
         {
-            Debug.DrawRay(sensor.position,
-                sensor.TransformDirection(Vector3.forward) * hit.distance, Color.yellow);
-            return true;
+            if (Physics.Raycast(sensor.position,
+                sensor.TransformDirection(Vector3.forward), out hit, dist, layerMask))
+            {
+                Debug.DrawRay(sensor.position,
+                    sensor.TransformDirection(Vector3.forward) * hit.distance, Color.white);
+                sensing = true;
+            }
+            else
+            {
+                Debug.DrawRay(sensor.position,
+                    sensor.TransformDirection(Vector3.forward) * dist, Color.yellow);
+                sensing = false;
+            }
+        }
+        //for side sensors to keep the car on track
+        else if (distanceAndDirection.Length == 2)
+        {
+            int dir = (int)distanceAndDirection[1];
+
+            //Change sensor angle before sensing
+            Vector3 sensorDirection = sensor.TransformDirection(Vector3.forward);
+            Quaternion changeAngle = Quaternion.AngleAxis(dir * BalanceSensors(), new Vector3(1, 0, 0));
+            Vector3 rayDirection = changeAngle * sensorDirection;
+
+            if (Physics.Raycast(sensor.position,
+                rayDirection, out hit, dist, layerMask))
+            {
+                Debug.DrawRay(sensor.position,
+                    rayDirection * hit.distance, Color.white);
+                sensing = true;
+            }
+            else
+            {
+                Debug.DrawRay(sensor.position,
+                    rayDirection * dist, Color.yellow);
+                sensing = false;
+            }
+        }
+        return (bool)sensing;
+    }
+
+    //Returns the difference in the x-axis angle caused by the swaying of the car in the z-axis
+    private int BalanceSensors()
+    {
+        int angleCorrection = 0;
+        if (angle_z < 180)
+        {
+            angleCorrection = angle_z;
+        }
+        else if (angle_z > 180 & angle_z > 0)
+        {
+            angleCorrection = (360 - angle_z);
+        }
+        else if (angle_z == 0)
+        {
+            angleCorrection = 0;
+        }
+        return angleCorrection;
+    }
+
+    private void Steer()
+    {
+        FLWC.steerAngle = steerAngle;
+        FRWC.steerAngle = steerAngle;
+    }
+
+    private void DriveMode()
+    {
+        if (!Sense(SFR, trackMask, sfrD) || Sense(SL1, obstacleMask, s1D) || Sense(SR1, obstacleMask, s1D) || Sense(SFR, obstacleMask, sfrD))
+        {
+            Drive1();
+        }
+        else if (angle_x < (sorX - 2) || angle_x > (sorX + 2))
+        {
+            Drive2();
         }
         else
         {
-            Debug.DrawRay(sensor.position,
-                sensor.TransformDirection(Vector3.forward) * dist, Color.white);
-            return false;
+            Drive3();
+        }
+    }
+
+    private void AvoidObstacles()
+    {
+        if (Sense(SL1, obstacleMask, s1D))
+        {
+            steerAngle = maxSteerAngle * 3;
+        }
+        else
+        {
+            steerAngle = -maxSteerAngle * 3;
         }
     }
 }
